@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: return-atlas-rmb
+    runtime: node
+    region: singapore
+    plan: free
+    buildCommand: node scripts/build.mjs
+    startCommand: node server.mjs
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
