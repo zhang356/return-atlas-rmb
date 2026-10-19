@@ -1,3 +1,4 @@
+let publishedAt='',publishedDaily=false;
 const $=id=>document.getElementById(id);
 const COLORS=['#17664f','#6686bc','#bd9761','#9b77ac','#b47666','#759681'];
 const PERIOD_NAMES={'1W':'1周','1M':'1个月','3M':'3个月','6M':'6个月','YTD':'年初至今','1Y':'1年','3Y':'3年','5Y':'5年'};
@@ -110,10 +111,11 @@ function renderStatus(){
   const loaded=Object.values(state.series).filter(v=>v.points?.length),failed=state.errors.length;
   $('busy').style.display=state.loading?'block':'none';$('refresh').disabled=state.loading;
   $('statusdot').classList.toggle('loading',state.loading);
-  $('status').textContent=state.loading?'正在读取行情 · '+state.done+'/'+(ASSETS.length+2):loaded.length?(loaded.some(x=>x.snapshot)?'已校验历史数据 · ':'每日历史行情 · ')+loaded.length+'/'+(ASSETS.length+2)+' 组数据':'行情数据暂不可用';
+  $('status').textContent=state.loading?'正在读取行情 · '+state.done+'/'+(ASSETS.length+2):loaded.length?(STATIC_SITE?'已发布收盘行情 · ':loaded.some(x=>x.snapshot)?'已校验历史数据 · ':'每日历史行情 · ')+loaded.length+'/'+(ASSETS.length+2)+' 组数据':'行情数据暂不可用';
   const dates=loaded.filter(x=>x.symbol!=='CNY=X'&&x.symbol!=='HKD=X').map(x=>x.latest).sort();
   $('asofLabel').textContent=dates.length?'收盘日期：'+dayLabel(dates[0])+(dates[0]!==dates.at(-1)?' – '+dayLabel(dates.at(-1)):''):'数据来源：雅虎财经';
   const stale=loaded.filter(x=>x.stale||(dateUTC(endDate())-dateUTC(x.latest))/DAY>4);
+  if(STATIC_SITE){$('dataUpdateNote').hidden=false;$('dataUpdateNote').textContent=(publishedDaily?'每日更新收盘行情；':'收盘行情；自动更新尚未启用。')+'刷新按钮重新读取已发布的数据。'+(publishedAt?'数据发布时间：'+new Intl.DateTimeFormat('zh-CN',{dateStyle:'medium',timeStyle:'short',timeZone:'Asia/Shanghai'}).format(new Date(publishedAt))+'（北京时间）。':'');}
   const gaps=loaded.filter(x=>x.historyWarning);
   if(failed||stale.length||gaps.length){$('notice').classList.add('show');$('notice').innerHTML=(failed?'<strong>'+failed+' 组数据暂不可用。</strong> 依赖缺失记录的收益显示“暂无数据”。 ':'')+(stale.length?'<strong>'+stale.length+' 组数据使用较早记录。</strong> 请核对实际估值日期。 ':'')+(gaps.length?'<strong>'+gaps.length+' 组数据的历史覆盖有限。</strong> 较长周期可能显示“暂无数据”。 ':'')+'<button id="errorsToggle">查看数据详情</button><div id="errorDetails" class="errorlist" hidden>'+state.errors.map(e=>'<div>'+escaped(e.symbol+'：'+dataError(e.error))+'</div>').join('')+stale.map(e=>'<div>'+escaped(e.symbol+'：最近收盘日期 '+dayLabel(e.latest)+(e.stale?'；实时刷新失败，使用已保存的数据':''))+'</div>').join('')+gaps.map(e=>'<div>'+escaped(e.symbol+'：数据源的日线历史始于'+dayLabel(e.points[0].d)+'，更早周期可能无法计算。')+'</div>').join('')+'</div>';$('errorsToggle').onclick=()=>{$('errorDetails').hidden=!$('errorDetails').hidden;};}
   else $('notice').classList.remove('show');
@@ -122,8 +124,18 @@ function render(){renderPeriods();renderSummary();renderBreakdown();renderChart(
 async function loadData(force=false){
   state.loading=true;state.done=0;state.errors=[];renderStatus();
   const first=[...new Set(['CNY=X','HKD=X',...state.selected,state.focus,...ASSETS.map(a=>a.symbol)])];
+  let published;
+  if(STATIC_SITE){
+    try{published=await loadPublishedData(document.baseURI,force);publishedAt=published.generatedAt;publishedDaily=published.dailyUpdates===true;}
+    catch(error){state.errors=first.map(symbol=>({symbol,error:dataError(error.message)}));for(const data of Object.values(state.series))data.stale=true;state.loading=false;render();return;}
+  }
   let cursor=0;
-  async function consumer(){while(cursor<first.length){const symbol=first[cursor++];try{const response=await fetch('/api/history?symbol='+encodeURIComponent(symbol)+(force?'&refresh=1':''));const data=await response.json();if(!response.ok||!data.points?.length)throw new Error(data.error||'暂无有效历史行情');state.series[symbol]=data;}catch(e){state.errors.push({symbol,error:dataError(e.message)});if(!state.series[symbol])state.series[symbol]={symbol,error:dataError(e.message)};else state.series[symbol].stale=true;}finally{state.done++;render();}}}
+  async function consumer(){while(cursor<first.length){const symbol=first[cursor++];try{
+    let data;
+    if(STATIC_SITE){data=published.series[symbol];}
+    else{const response=await fetch('/api/history?symbol='+encodeURIComponent(symbol)+(force?'&refresh=1':''));data=await response.json();if(!response.ok)throw new Error(data.error||'暂无有效历史行情');}
+    if(!data?.points?.length)throw new Error('暂无有效历史行情');state.series[symbol]=data;
+  }catch(e){state.errors.push({symbol,error:dataError(e.message)});if(!state.series[symbol])state.series[symbol]={symbol,error:dataError(e.message)};else state.series[symbol].stale=true;}finally{state.done++;if(!STATIC_SITE)render();}}}
   await Promise.all(Array.from({length:5},consumer));state.loading=false;render();
 }
 function exportCSV(){
@@ -152,6 +164,7 @@ $('mosaic').onclick=e=>{
   if(input){const s=input.dataset.select;if(state.selected.has(s))state.selected.delete(s);else if(state.selected.size<6)state.selected.add(s);else{input.checked=false;$('selectionNotice').textContent='最多对比 6 项资产，请先取消一项再添加。';return;}$('selectionNotice').textContent='';render();return;}
   const focus=e.target.closest('[data-focus]');if(focus){state.focus=focus.dataset.focus;render();}
 };
+if(STATIC_SITE){$('refresh').title='重新读取已发布行情；数据每日更新';}
 $('refresh').onclick=()=>loadData(true);$('export').onclick=exportCSV;
 let resizeTimer;window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{renderChart();renderMosaic();},120);});
 render();loadData();

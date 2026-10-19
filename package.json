@@ -2,10 +2,14 @@
   "name": "return-atlas-independent",
   "private": true,
   "type": "module",
-  "engines": {"node": ">=22"},
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "node scripts/build.mjs",
     "start": "node server.mjs",
-    "test": "node scripts/test.mjs && node scripts/test-mosaic.mjs"
+    "test": "node scripts/test.mjs && node scripts/test-mosaic.mjs",
+    "build:pages": "node scripts/build-pages.mjs",
+    "update:data": "node scripts/update-data.mjs"
   }
 }

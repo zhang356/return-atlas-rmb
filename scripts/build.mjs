@@ -1,11 +1,12 @@
 import { readFile,writeFile,mkdir } from 'node:fs/promises';
 const engine=await readFile('src/engine.js','utf8');
+const market=(await readFile('src/market-data.js','utf8')).replace(/^import .*;\n/,'').replaceAll('export ','');
 const snapshot=await readFile('src/snapshot.json','utf8');
 const mosaic=await readFile('src/mosaic.js','utf8');
 const mosaicCss=await readFile('src/mosaic.css','utf8');
-const client=engine.replaceAll('export ','')+'\n'+mosaic.replaceAll('export ','')+'\n'+await readFile('src/ui.js','utf8');
+const client='const STATIC_SITE = false;\n'+engine.replaceAll('export ','')+'\n'+mosaic.replaceAll('export ','')+'\n'+await readFile('src/ui.js','utf8');
 const html=(await readFile('src/page.html','utf8')).replace('/*__CLIENT__*/',()=>client).replace('/*__MOSAIC_CSS__*/',()=>mosaicCss);
 const server=(await readFile('src/server.js','utf8')).replace('__PAGE__',()=>JSON.stringify(html));
 await mkdir('worker',{recursive:true});
-await writeFile('worker/index.js',engine.replaceAll('export ','')+'\nconst SNAPSHOT = '+snapshot+';\n'+server);
+await writeFile('worker/index.js',engine.replaceAll('export ','')+'\nconst SNAPSHOT = '+snapshot+';\n'+market+'\n'+server);
 console.log('Bundled Return Atlas.');
